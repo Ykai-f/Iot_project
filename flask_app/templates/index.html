@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>IOT Data Viewer- Temperature and Humidity Sensor</title>
+        <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@500&display=swap');
+    
+            #logo {
+                position: absolute;
+                top: 10px;
+                left: 15px;
+                font-size: 48px;
+                z-index: 1000;
+            }
+            body {
+                font-family: 'Arial', sans-serif;
+                background-color: #f4f4f4;
+                color: #333;
+                margin: 0;
+                padding: 0;
+            }
+            #container {
+                display: flex;
+                width: 90%;
+                margin: 20px auto;
+                background-color: white;
+                box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            }
+            #buttons {
+                padding: 20px;
+                width: 20%;
+                border-right: 1px solid #ccc;
+            }
+    
+            #output {
+                position: relative;
+                padding: 20px;
+                width: 80%;
+                overflow: auto;
+                height: 70vh;
+            }
+    
+            #viewControls {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                z-index: 10;
+                display: flex;
+            }
+    
+            #viewControls button {
+                padding: 4px 8px;
+                font-size: 8px;
+                margin-left: 5px;
+                border: 1px solid #ccc;
+                background-color: #fff;
+                cursor: pointer;
+                text-align: center;
+                transition: background-color 0.3s;
+                color: #333;
+            }
+    
+            #viewControls button.active {
+                background-color: #007BFF;
+                color: #fff;
+            }
+    
+            button {
+                background-color: #007BFF;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                transition: background-color 0.3s;
+                margin-bottom: 10px;
+            }
+            button:hover {
+                background-color: #0056b3;
+            }
+            button:disabled {
+                background-color: #ccc;
+                cursor: not-allowed;
+            }
+    
+            input[type="date"], button {
+                width: 100%;
+                margin-bottom: 10px;
+            }
+    
+            #header {
+                text-align: center;
+                margin: 20px 0;
+                font-size: 24px;
+                font-weight: bold;
+            }
+    
+            #footer {
+                text-align: center;
+                padding: 10px 0;
+                font-size: 16px;
+                color: #ccc;
+                width: 100%;
+                margin-top: 20px;
+            }
+            .key {
+                color: red;
+            }
+            .string {
+                color: green;
+            }
+            .number {
+                color: darkorange;
+            }
+            .boolean {
+                color: blue;
+            }
+            .null {
+                color: magenta;
+            }
+            .api-action {
+                margin-bottom: 20px;
+                padding: 10px;
+                border-bottom: 1px solid #ccc;
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+            }
+    
+            .api-action p {
+                margin: 0;
+                padding-bottom: 10px;
+                font-weight: bold;
+                text-align: left;
+            }
+            .api-action button {
+                width: 80%;
+            }
+    
+            .api-action a {
+                font-weight: bold;
+                color: black;
+                text-decoration: underline;
+                font-family: 'Roboto', sans-serif;
+                margin-bottom: 10px;
+            }
+    
+            #dataTable th, #dataTable td {
+                padding: 8px;
+                border: 1px solid #ccc;
+            }
+            #dataTable th {
+                background-color: #f4f4f4;
+            }
+    
+            .gauge-container {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100%;
+            }
+    
+            .gauge-wrapper {
+                display: flex;
+                justify-content: space-between;
+                width: 100%;
+                padding: 0 20px; /* 增加左右填充 */
+                box-sizing: border-box; /* 确保填充不影响宽度计算 */
+            }
+    
+            .gauge {
+                flex: 0 0 45%; /* 确保每个仪表盘占用 45% 的宽度 */
+                margin: 0 10px;
+                transform-origin: center;
+            }
+    
+            .last-update-time {
+                margin-top: 20px;
+                align-self: flex-start;
+            }
+
+            .card-container {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+            }
+            .card {
+                background-color: #fff;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                flex: 1;
+                margin: 0 10px;
+                padding: 10px; /* 调整内边距 */
+                text-align: center;
+                height: 80px; /* 调整高度 */
+            }
+
+            .card h3 {
+                margin: 0;
+                font-size: 1.5em;
+                color: #007BFF;
+            }
+            .card p {
+                margin: 0.5em 0;
+                font-size: 1.2em;
+                color: #333;
+            }
+            .card .time {
+                font-size: 0.9em;
+                color: #888;
+            }
+
+        </style>
+        <style>
+            [v-cloak] {
+                display: none;
+            }
+        </style>
+    </head>
+<body>
+    <div id="app" v-cloak>
+        <div id="logo">🪷</div>
+        <div id="header">IOT Data Viewer- Temperature and Humidity Sensor</div>
+        <div id="container">
+            <div id="buttons">
+                <div class="api-action">
+                    <a href="https://yuekai.pythonanywhere.com/api/v1/get_latest" target="_blank">/api/v1/get_latest</a>
+                    <button @click="fetchLatestData">Get Latest Data</button>
+                </div>
+                <!-- Read by start date and end date -->
+                <div class="api-action">
+                    <a href="'https://yuekai.pythonanywhere.com/api/v1/get_by_period?start_date='+ startDate + '&end_date=' + endDate" target="_blank">/api/v1/get_by_period</a>
+                    <label for="startDate">Start Date:</label>
+                    <input type="date" v-model="startDate" id="startDate">
+                    
+                    <label for="endDate">End Date:</label>
+                    <input type="date" v-model="endDate" id="endDate">
+                    
+                    <button @click="fetchDataByPeriod">Get Data by Period</button>
+                </div>
+                <!-- Read all records -->
+                <!-- <div class="api-action">
+                    <a href="https://yuekai.pythonanywhere.com/api/v1/get_all" target="_blank">/api/v1/get_all</a>
+                    <button @click="fetchAllData">Get All Records</button>
+                </div> -->
+                <!-- Read records by date -->
+                <div class="api-action">
+                    <a :href="'https://yuekai.pythonanywhere.com/api/v1/get_by_date?date=' + dateInput" target="_blank">/api/v1/get_by_date</a>
+                    <input type="date" v-model="dateInput">
+                    <button @click="fetchDataByDate">Get Data by Date</button>
+                </div>
+                <!-- hourly record by date -->
+                <!-- <div class="api-action">
+                    <a :href="'https://yuekai.pythonanywhere.com/api/v1/hourly_data?date=' + hourlyDateInput" target="_blank">/api/v1/hourly_data</a>
+                    <input type="date" v-model="hourlyDateInput">
+                    <button @click="fetchHourlyData">Get Hourly Data by Date</button>
+                </div> -->
+                <!-- summary -->
+                <div class="api-action">
+                    <a :href="'https://yuekai.pythonanywhere.com/api/v1/summary_by_day?date=' + summaryDateInput" target="_blank">/api/v1/summary_by_day</a>
+                    <input type="date" v-model="summaryDateInput">
+                    <button @click="fetchSummaryByDay">Get Summary by Day</button>
+                </div>
+            </div>
+            <div id="output">
+                <div id="viewControls" v-show="show_switch_button">
+                    <button :class="{ active: currentView === 'json' }" @click="setView('json')">JSON</button>
+                    <button :class="{ active: currentView === 'table' }" @click="setView('table')">Table</button>
+                </div>
+                <div v-show="showTextGauges">
+                    <h2>[[ summaryTitle ]]</h2>
+                </div>
+                <div class="card-container" v-show="showTextGauges">
+                    <div class="card">
+                        <h3>Max Temp</h3>
+                        <p>[[ summary.max_temperature ]] °C</p>
+                        <p class="time">[[ summary.max_temp_time ]]</p>
+                    </div>
+                    <div class="card">
+                        <h3>Min Temp</h3>
+                        <p>[[ summary.min_temperature ]] °C</p>
+                        <p class="time">[[ summary.min_temp_time ]]</p>
+                    </div>
+                    <div class="card">
+                        <h3>Avg Temp</h3>
+                        <p>[[ summary.avg_temperature ]] °C</p>
+                    </div>
+                    <div class="card">
+                        <h3>Avg Humidity</h3>
+                        <p>[[ summary.avg_humidity ]] %</p>
+                    </div>
+                </div>
+                <pre v-show="currentView === 'json'" v-html="syntaxHighlight(jsonOutput)"></pre>
+                <table id="dataTable" v-show="currentView === 'table'">
+                    <thead>
+                        <tr>
+                            <th v-for="header in tableHeaders" :key="header">[[ header.replace('_', ' ').toUpperCase() ]]</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="(row, index) in tableData" :key="index">
+                            <td v-for="header in tableHeaders" :key="header">[[ row[header] ]]</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div ref="plotlyChart" v-show="showPlotly"></div>
+                <div class="gauge-container" v-show="showGauge">
+                    <div class="gauge-wrapper">
+                        <div ref="temperatureGauge" class="gauge"></div>
+                        <div ref="humidityGauge" class="gauge"></div>
+                    </div>
+                    <p ref="gaugeLastUpdateTime" v-show="showGauge" class="last-update-time">Last update time: [[lastUpdateTime]]</p>
+                </div>
+            </div>
+        </div>
+        <div id="footer">Group Members: Bao Qiqi, Du Jing, Feng Yuekai, Gu Shiyao, Zhang Fulin</div>
+    </div>
+
+    <script>
+        new Vue({
+            el: '#app',
+            delimiters: ['[[', ']]'],
+            data: {
+                currentView: 'json',
+                dateInput: '',
+                hourlyDateInput: '',
+                summaryDateInput: '',
+                jsonOutput: '',
+                tableHeaders: [],
+                tableData: [],
+                showPlotly: false,
+                lastData: null,
+                showGauge: false,
+                show_switch_button: false,
+                showTextGauges: false,
+                lastUpdateTime: '',
+                summaryTitle: '',
+                startDate: '',
+                endDate: '',
+                summary: {
+                    max_temperature: null,
+                    max_temp_time: null,
+                    min_temperature: null,
+                    min_temp_time: null,
+                    avg_temperature: null,
+                    avg_humidity: null
+                },
+            },
+            mounted() {
+                const today = new Date();
+                const yyyy = today.getFullYear();
+                const mm = String(today.getMonth() + 1).padStart(2, '0');
+                const dd = String(today.getDate()).padStart(2, '0');
+                this.dateInput = `${yyyy}-${mm}-${dd}`;
+                this.hourlyDateInput = `${yyyy}-${mm}-${dd}`;
+                this.startDate = `${yyyy}-${mm}-${dd}`; // 设置 startDate 默认值
+                this.endDate = `${yyyy}-${mm}-${dd}`; // 设置 endDate 默认值
+                this.fillTodayDate();
+                this.fetchLatestData();
+                window.addEventListener('resize', this.resizePlotlyChart);
+            },
+            beforeDestroy() {
+                window.removeEventListener('resize', this.resizePlotlyChart);
+            },
+
+            methods: {
+                fetchAllData() {
+                    this.clearOutput(); // 清空显示窗口
+                    fetch('https://yuekai.pythonanywhere.com/api/v1/get_all')
+                        .then(response => response.json())
+                        .then(data => {
+                            this.processData(data);
+                            this.showPlotly = false; // 隐藏 Plotly 图表
+                            this.showGauge = false; // 隐藏仪表盘
+                            this.show_switch_button = true; // 显示切换按钮
+                            this.currentView = 'json'; // 默认显示 JSON 视图
+                            this.showTextGauges = false;
+                        })
+                        .catch(error => console.error('Error fetching tasks:', error));
+                },
+
+                fetchDataByPeriod() {
+                    if (this.startDate && this.endDate) {
+                        this.clearOutput(); // 清空显示窗口
+                        const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                        const url = `https://yuekai.pythonanywhere.com/api/v1/get_by_period?start_date=${this.startDate}&end_date=${this.endDate}&timezone=${encodeURIComponent(userTimeZone)}`;
+                        fetch(url)
+                            .then(response => response.json())
+                            .then(data => {
+                                this.processData(data); // 使用相同的数据处理函数
+                                this.currentView = 'json';
+                                this.showPlotly = false;
+                                this.showGauge = false;
+                                this.show_switch_button = true;
+                                this.showTextGauges = false;
+                            })
+                            .catch(error => console.error('Error fetching data:', error));
+                    } else {
+                        alert('Please select both start and end dates.');
+                    }
+                },
+
+                fetchDataByDate() {
+                    if (this.dateInput) {
+                        this.clearOutput(); // 清空显示窗口
+                        fetch('https://yuekai.pythonanywhere.com/api/v1/get_by_date?date=' + this.dateInput)
+                            .then(response => response.json())
+                            .then(data => {
+                                this.processData(data);
+                                this.showPlotly = false; // 隐藏 Plotly 图表
+                                this.showGauge = false; // 隐藏仪表盘
+                                this.show_switch_button = true; // 显示切换按钮
+                                this.currentView = 'json'; // 默认显示 JSON 视图
+                                this.showTextGauges = false;
+                            })
+                            .catch(error => console.error('Error fetching task:', error));
+                    } else {
+                        alert('Please select a date.');
+                    }
+                },
+
+                fetchHourlyData() {
+                    if (this.hourlyDateInput) {
+                        const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                        const url = `https://yuekai.pythonanywhere.com/api/v1/hourly_data?date=${this.hourlyDateInput}&timezone=${encodeURIComponent(userTimeZone)}`;
+                        fetch(url)
+                            .then(response => response.json())
+                            .then(data => {
+                                this.processHourlyData(data);
+                                this.showPlotly = true;
+                                this.lastData = null;
+                                this.showGauge = false;
+                                this.show_switch_button = false;
+                                this.showTextGauges = false;
+                            })
+                            .catch(error => console.error('Error fetching hourly data:', error));
+                        } else {
+                            alert('Please select a date.');
+                        }
+                },
+                
+                fetchLatestData() {
+                this.showGauge = false; // 先隐藏仪表盘，确保刷新
+                this.showPlotly = false; // 隐藏 Plotly 图表
+                this.currentView = 'none'; // 隐藏 JSON/Table 视图
+                fetch('https://yuekai.pythonanywhere.com/api/v1/get_latest')
+                    .then(response => response.json())
+                    .then(data => {
+                        this.processLatestData(data);
+                        this.show_switch_button = false;
+                        this.$nextTick(() => {
+                            this.showGauge = true; // 确保数据处理后再显示仪表盘
+                            this.showTextGauges = false;
+                        });
+                    })
+                    .catch(error => console.error('Error fetching latest data:', error));
+            },
+
+                processData(data) {
+                    if (!Array.isArray(data)) {
+                        console.error('Expected an array of data');
+                        return;
+                    }
+
+                    this.lastData = data;
+
+                    const formattedData = data.map(item => ({
+                        record_time: new Date(item.record_time).toLocaleString(),
+                        temperature: parseFloat(item.temperature).toFixed(1),
+                        humidity: parseFloat(item.humidity).toFixed(1)
+                    }));
+
+                    if (this.currentView === 'json') {
+                        this.jsonOutput = JSON.stringify(formattedData, null, 4);
+                    } else {
+                        this.tableHeaders = ['record_time', 'temperature', 'humidity'];
+                        this.tableData = formattedData;
+                    }
+
+                    this.$nextTick(() => {
+                        if (this.currentView === 'json') {
+                            this.jsonOutput = JSON.stringify(formattedData, null, 4);
+                        } else {
+                            this.tableHeaders = ['record_time', 'temperature', 'humidity'];
+                            this.tableData = formattedData;
+                        }
+                    });
+                },
+
+                fetchSummaryByDay() {
+                    if (this.summaryDateInput) {
+                        const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                        const url = `https://yuekai.pythonanywhere.com/api/v1/summary_by_day?date=${this.summaryDateInput}&timezone=${encodeURIComponent(userTimeZone)}`;
+                        fetch(url)
+                            .then(response => response.json())
+                            .then(data => {
+                                this.processSummaryData(data);
+                                this.showPlotly = true;
+                                this.lastData = null;
+                                this.showGauge = false;
+                                this.showTextGauges = true;
+                                this.show_switch_button = false;
+                                this.summaryTitle = `Summary for ${this.summaryDateInput}`;  
+                            })
+                            .catch(error => console.error('Error fetching summary data:', error));
+                    } else {
+                        alert('Please select a date.');
+                    }
+                },
+
+                fillTodayDate() {
+                    const today = new Date();
+                    const yyyy = today.getFullYear();
+                    const mm = String(today.getMonth() + 1).padStart(2, '0');
+                    const dd = String(today.getDate()).padStart(2, '0');
+                    this.dateInput = `${yyyy}-${mm}-${dd}`;
+                    this.summaryDateInput = `${yyyy}-${mm}-${dd}`;
+                },
+
+                processHourlyData(data) {
+                    if (!Array.isArray(data)) {
+                        console.error('Expected an array of data');
+                        return;
+                    }
+
+                    const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                    const processedData = data.map(item => {
+                        const localTime = new Date(item.hour + 'Z').toLocaleString('en-US', { timeZone: userTimeZone });
+                        const hour = new Date(item.hour + 'Z').getHours(); // 提取小时数
+                        return {
+                            hour: hour,
+                            average_temperature: item.average_temperature,
+                            average_humidity: item.average_humidity
+                        };
+                    });
+
+                    const hours = processedData.map(d => d.hour);
+                    const hourLabels = processedData.map(d => d.hour + 'h'); // 转换为 "0h", "1h" 等格式
+                    const temperatures = processedData.map(d => d.average_temperature);
+                    const humidities = processedData.map(d => d.average_humidity);
+
+                    const trace1 = {
+                        x: hours,
+                        y: temperatures,
+                        type: 'scatter',
+                        mode: 'lines+markers+text',
+                        text: temperatures.map(String),
+                        textposition: 'top center',
+                        name: 'Temperature'
+                    };
+
+                    const trace2 = {
+                        x: hours,
+                        y: humidities,
+                        type: 'scatter',
+                        mode: 'lines+markers+text',
+                        text: humidities.map(String),
+                        textposition: 'top center',
+                        name: 'Humidity'
+                    };
+
+                    const layout = {
+                        title: `Temperature and Humidity on ${this.hourlyDateInput}`,
+                        xaxis: {
+                            title: 'Hour',
+                            tickvals: hours,
+                            ticktext: hourLabels,
+                            showgrid: true,
+                            zeroline: false,
+                        },
+                        yaxis: { title: 'Value' },
+                        width: this.$refs.plotlyChart.offsetWidth,
+                        height: this.$refs.plotlyChart.offsetHeight,
+                        margin: { l: 50, r: 50, t: 50, b: 50 }
+
+                    };
+
+                    this.$nextTick(() => {
+                        setTimeout(() => {
+                            Plotly.newPlot(this.$refs.plotlyChart, [trace1, trace2], layout);
+                            this.currentView = 'json';
+                            this.tableData = [];
+                            this.jsonOutput = '';
+                            this.resizePlotlyChart(); // 调整图表尺寸
+                        }, 100); // 延迟 100 毫秒，确保 DOM 完全渲染
+                    });
+                },
+
+                processSummaryData(data) {
+                    const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+                    this.summary = {
+                        ...data.summary,
+                        max_temp_time: this.formatLocalTime(data.summary.max_temp_time, userTimeZone),
+                        min_temp_time: this.formatLocalTime(data.summary.min_temp_time, userTimeZone)
+                    };
+                    const hourly_data = data.hourly_data.map(item => ({
+                        hour: this.formatLocalHour(item.hour, userTimeZone),
+                        avg_temperature: item.avg_temperature,
+                        avg_humidity: item.avg_humidity
+                    }));
+
+                    const hours = hourly_data.map(d => d.hour);
+                    const temperatures = hourly_data.map(d => d.avg_temperature);
+                    const humidities = hourly_data.map(d => d.avg_humidity);
+
+                    const trace1 = {
+                        x: hours,
+                        y: temperatures,
+                        type: 'scatter',
+                        mode: 'lines+markers+text',
+                        text: temperatures.map(String),
+                        textposition: 'top center',
+                        name: 'Temperature'
+                    };
+
+                    const trace2 = {
+                        x: hours,
+                        y: humidities,
+                        type: 'scatter',
+                        mode: 'lines+markers+text',
+                        text: humidities.map(String),
+                        textposition: 'top center',
+                        name: 'Humidity'
+                    };
+
+                    const layout = {
+                        // title: `Temperature and Humidity Summary for ${this.summaryDateInput}`,
+                        xaxis: { title: 'Hour' },
+                        yaxis: { title: 'Value' },
+                        width: this.$refs.plotlyChart.offsetWidth,
+                        height: this.$refs.plotlyChart.offsetHeight,
+                        margin: { l: 50, r: 50, t: 50, b: 50 }
+                    };
+
+                    this.$nextTick(() => {
+                        setTimeout(() => {
+                            Plotly.newPlot(this.$refs.plotlyChart, [trace1, trace2], layout);
+                            this.currentView = 'json';
+                            this.tableData = [];
+                            this.jsonOutput = '';
+                            this.resizePlotlyChart();
+                        }, 100);
+                    });
+                },
+
+                syntaxHighlight(json) {
+                    if (typeof json != 'string') {
+                        json = JSON.stringify(json, undefined, 2);
+                    }
+                    json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?)|(\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+                        var cls = 'number';
+                        if (/^"/.test(match)) {
+                            if (/:$/.test(match)) {
+                                cls = 'key';
+                            } else {
+                                cls = 'string';
+                            }
+                        } else if (/true|false/.test(match)) {
+                            cls = 'boolean';
+                        } else if (/null/.test(match)) {
+                            cls = 'null';
+                        }
+                        return '<span class="' + cls + '">' + match + '</span>';
+                    });
+                },
+
+                setView(view) {
+                    this.currentView = view;
+                    this.showPlotly = false;
+                    this.showGauge = false;
+                    if (this.lastData) {
+                        this.processData(this.lastData);
+                    }
+                },
+
+                clearOutput() {
+                    this.jsonOutput = '';
+                    this.tableData = [];
+                    this.tableHeaders = [];
+                },
+
+                resizePlotlyChart() {
+                    const layout = {
+                        width: this.$refs.plotlyChart.offsetWidth,
+                        height: this.$refs.plotlyChart.offsetHeight - 50
+                    };
+                    Plotly.relayout(this.$refs.plotlyChart, layout);
+                },
+                
+                processLatestData(data) {
+                    const temperature = data.temperature;
+                    const humidity = data.humidity;
+                    const now = new Date(data.record_time);
+                    const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+                    const options = {
+                        year: 'numeric',
+                        month: 'long',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false,
+                        timeZone: userTimeZone
+                    };
+
+                    const formattedTime = now.toLocaleString('en-US', options);
+
+                    this.lastUpdateTime = `${formattedTime} (${userTimeZone})`;
+
+                    const temperatureGauge = {
+                        type: 'indicator',
+                        mode: 'gauge+number',
+                        value: temperature,
+                        title: { text: 'Temperature', font: { size: 24 } },
+                        gauge: {
+                            axis: { range: [null, 50], tickwidth: 1, tickcolor: "darkred" },
+                            bar: { color: "rgba(255, 87, 34, .8)" },
+                            bgcolor: "white",
+                            borderwidth: 2,
+                            bordercolor: "gray",
+                            steps: [
+                                { range: [0, 10], color: 'rgba(24, 120, 240, 0.6)' },
+                                { range: [10, 20], color: 'rgba(23, 190, 207, 0.6)' },
+                                { range: [20, 30], color: 'rgba(23, 240, 207, 0.6)' },
+                                { range: [30, 40], color: 'rgba(235, 203, 138, 0.6)' },
+                                { range: [40, 50], color: 'rgba(255, 87, 34, 0.6)' }
+                            ]
+                        }
+                    };
+
+                    const humidityGauge = {
+                        type: 'indicator',
+                        mode: 'gauge+number',
+                        value: humidity,
+                        title: { text: 'Humidity', font: { size: 24 } },
+                        gauge: {
+                            axis: { range: [null, 100], tickwidth: 1, tickcolor: "darkblue" },
+                            bar: { color: "rgba(30, 136, 229, .8)" },
+                            bgcolor: "white",
+                            borderwidth: 2,
+                            bordercolor: "gray",
+                            steps: [
+                                { range: [0, 50], color: 'rgba(178, 235, 242, 0.6)' },
+                                { range: [50, 100], color: 'rgba(30, 136, 229, 0.6)' }
+                            ]
+                        }
+                    };
+
+                    const layout = {
+                        width: 400,
+                        height: 300,
+                        margin: { t: 20, r: 20, l: 20, b: 20 },
+                        paper_bgcolor: "white",
+                        font: { color: "darkslategray", family: "Arial" }
+                    };
+
+                    // 清除旧图表
+                    Plotly.purge(this.$refs.temperatureGauge);
+                    Plotly.purge(this.$refs.humidityGauge);
+
+                    // 绘制新图表
+                    Plotly.newPlot(this.$refs.temperatureGauge, [temperatureGauge], layout);
+                    Plotly.newPlot(this.$refs.humidityGauge, [humidityGauge], layout);
+                },
+
+                formatTime(dateTimeStr) {
+                    const date = new Date(dateTimeStr);
+                    const hours = String(date.getHours()).padStart(2, '0');
+                    const minutes = String(date.getMinutes()).padStart(2, '0');
+                    const seconds = String(date.getSeconds()).padStart(2, '0');
+                    return `${hours}:${minutes}:${seconds}`;
+                },
+            
+                
+                formatLocalTime(dateTimeStr, timeZone) {
+                    const date = new Date(dateTimeStr);
+                    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone });
+                },
+                
+                formatLocalHour(dateTimeStr, timeZone) {
+                    const date = new Date(dateTimeStr + 'Z'); // 确保输入是 UTC 时间
+                    const hours = String(date.getHours()).padStart(2, '0');
+                    return `${hours}h`;
+                }
+        }
+
+        
+    });
+
+    
+    </script>
+</body>
+</html>
