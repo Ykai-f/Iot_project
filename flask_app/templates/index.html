@@ -235,7 +235,7 @@
                 </div>
                 <!-- Read by start date and end date -->
                 <div class="api-action">
-                    <a href="'https://yuekai.pythonanywhere.com/api/v1/get_by_period?start_date='+ startDate + '&end_date=' + endDate" target="_blank">/api/v1/get_by_period</a>
+                    <a :href="'https://yuekai.pythonanywhere.com/api/v1/get_by_period?start_date=' + startDate + '&end_date=' + endDate + '&timezone=' + encodeURIComponent(userTimeZone)" target="_blank">/api/v1/get_by_period</a>
                     <label for="startDate">Start Date:</label>
                     <input type="date" v-model="startDate" id="startDate">
                     
@@ -351,6 +351,7 @@
                     avg_temperature: null,
                     avg_humidity: null
                 },
+                userTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, 
             },
             mounted() {
                 const today = new Date();
