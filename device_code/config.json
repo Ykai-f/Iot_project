@@ -1,0 +1,7 @@
+{
+    "SSID": "La Marq-510",
+    "PASSWORD": "",
+    "API_URL": "https://yuekai.pythonanywhere.com/api/v1/update",
+    "sensor_read_interval_after_seconds": 60,
+    "max_send_when_n_records" : 10
+  }

@@ -17,20 +17,30 @@ class NetworkError(Exception):
 class SensorError(Exception):
     pass
 
+def load_config(CONFIG_FILE):
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    except (OSError, ValueError) as e:
+            print("Error loading config:", e)
+            return None
+
 class IoTDevice:
-    def __init__(self, ssid, password, api_url):
-        self.ssid = ssid
-        self.password = password
-        self.api_url = api_url
+    def __init__(self):
+        self.config = load_config('config.json')
+        self.ssid = self.config['SSID']
+        self.password = self.config['PASSWORD']
+        self.api_url = self.config['API_URL']
         self.unsent_data_path = "sd/unsent.json"
         self.data_buffer = []
         self.last_send_time = time.time()
-        self.send_gap = 60
-        self.len_buffer_max = 10
+        self.sensor_read_interval = self.config['sensor_read_interval_after_seconds']
+        self.len_buffer_max = self.config['max_send_when_n_records']
         self.red = machine.Pin(15, machine.Pin.OUT)
         self.dht_sensor = None
         self.ds = None
         self.sdcard_status = False
+        self.config_mode = False
 
     def file_exists(self, filepath):
         try:
@@ -57,7 +67,7 @@ class IoTDevice:
                     print("Data sent successfully")
                     self.data_buffer.clear()
                 else:
-                    raise NetworkError("Failed to send data with status: {}".format(response.status_code))
+                    raise NetworkError("Failed to send real-time data with status: {}".format(response.status_code))
             except Exception as e:
                 blink(5, target=self.red)
                 print("Error sending data:", e)
@@ -84,30 +94,24 @@ class IoTDevice:
             with open(self.unsent_data_path, "r") as file:
                 unsent_data = file.readlines()
 
-            if unsent_data:  # Check if the list is not empty
-                all_data_sent = True
-                for line in unsent_data:
-                    data = json.loads(line)
-                    try:
-                        response = urequests.post(
-                            self.api_url,
-                            data=json.dumps(data),
-                            headers={'Content-Type': 'application/json'}
-                        )
-                        if response.status_code != 200:
-                            print(f"Failed to send data with status: {response.status_code}")
-                            all_data_sent = False
-                            break
-                    except Exception as e:
-                        self.log_error_to_sd(f"Error sending unsent data: {e}")
-                        blink(5, target=self.red)
-                        print("Error sending unsent data:", e)
-                        all_data_sent = False
-                        break
-
-                if all_data_sent:
-                    with open(self.unsent_data_path, "w") as file:
-                        pass  # Clear the file when all data sent
+            if unsent_data:  
+                data_list = [json.loads(line) for line in unsent_data]
+                try:
+                    response = urequests.post(
+                        self.api_url,
+                        data=json.dumps(data_list),
+                        headers={'Content-Type': 'application/json'}
+                    )
+                    if response.status_code != 200:
+                        print(f"Failed to send unsent data with status: {response.status_code}")
+                        self.log_error_to_sd(f"Failed to send unsent data with status: {response.status_code}")
+                    else:
+                        with open(self.unsent_data_path, "w") as file:
+                            pass  
+                except Exception as e:
+                    self.log_error_to_sd(f"Error sending unsent data: {e}")
+                    self.blink(5, target=self.red)
+                    print("Error sending unsent data:", e)
 
     def save_data_to_csv(self, timestamp, temp, humidity):
         if self.sdcard_status:
@@ -149,8 +153,8 @@ class IoTDevice:
         print("Connecting to WiFi...")
         connect_to_wifi(self.ssid, self.password)
         if not wifi_status():
-            self.send_gap = 600  # make the delay longer
-            self.len_buffer_max = 120  # Record every 5 seconds, so normally should have 600 / 5 = 120 records
+            self.sensor_read_interval = 3 * self.config['max_send_when_n_records']  # if the wifi is not connected, make the delay longer
+            self.len_buffer_max = 3 * self.config['max_send_when_n_records']
             self.send_unsent_data()
         else:
             print("Reconnect to WiFi!!")
@@ -169,55 +173,62 @@ class IoTDevice:
 
     def main_loop(self):
         while True:
-            try:
-                current_time = time.time()
-                current_time_str = "{:04d}-{:02d}-{:02d},{:02d}:{:02d}:{:02d}".format(*self.ds.get_time())
-                t, h = read_dht11(self.dht_sensor)
+            if not self.config_mode:
+              try:
+                  current_time = time.time()
+                  current_time_str = "{:04d}-{:02d}-{:02d},{:02d}:{:02d}:{:02d}".format(*self.ds.get_time())
+                  t, h = read_dht11(self.dht_sensor)
+  
+                  print(f"Current time: {current_time_str}\nTemperature: {t}C\nHumidity: {h}%")
+                  if not wifi_status():
+                      print("Warning! WIFI not connected!")
+                  if not self.sdcard_status:
+                      print("Warning! SD not mounted correctly!")
+                      self.remount_sd_card()
+                  print("")  # print gap between loops
+  
+                  self.append_data_to_buffer(current_time_str, t, h)
+  
+                  if (current_time - self.last_send_time) >= self.sensor_read_interval*self.len_buffer_max or len(self.data_buffer) >= self.len_buffer_max:
+                      try:
+                          # Detect again if the wifi is connected
+                          if not wifi_status():
+                              self.reconnect_wifi()
+                          self.send_data_to_cloud()
+                      except NetworkError as e:
+                          blink(1, target=self.red)
+                          print("Error sending data:", e)
+                          self.log_error_to_sd(f"Error sending data: {e}")
+                          print("Saving data locally...")
+                          if self.sdcard_status:
+                              self.save_data_locally()
+                          else:
+                              print("SD card not mounted. Data will be lost.")
+                              self.log_error_to_sd("SD card not mounted. Data will be lost.")
+                          blink(5)
+                          self.data_buffer.clear()
+  
+                  self.save_data_to_csv(current_time_str, t, h)
+                  blink(1)
+  
+                  gc.collect()
+                  time.sleep(self.sensor_read_interval)  # Sleep for next reading
+              except SDCardError:
+                  self.sdcard_status = False  # Set sdcard_status to False when an SD card error occurs
+              except NetworkError:
+                  self.reconnect_wifi()
+              except SensorError:
+                  time.sleep(5)
+                  pass  # DHT sensor is easily meet meet problems like pulse not enough, so directly next reading
+              except Exception as e:
+                  self.log_error_to_sd(f"Error while main loop: {e}")
+                  blink(1, target=self.red)
+                  print("Error:", e)
+                  time.sleep(self.sensor_read_interval) # Sleep for next reading
+                  gc.collect()
+                  continue
 
-                print(f"Current time: {current_time_str}\nTemperature: {t}C\nHumidity: {h}%")
-                if not wifi_status():
-                    print("Warning! WIFI not connected!")
-                if not self.sdcard_status:
-                    print("Warning! SD not mounted correctly!")
-                    self.remount_sd_card()
-                print("")  # print gap between loops
-
-                self.append_data_to_buffer(current_time_str, t, h)
-
-                if (current_time - self.last_send_time) >= self.send_gap or len(self.data_buffer) >= self.len_buffer_max:
-                    try:
-                        # Detect again if the wifi is connected
-                        if not wifi_status():
-                            self.reconnect_wifi()
-                        self.send_data_to_cloud()
-                    except NetworkError as e:
-                        blink(1, target=self.red)
-                        print("Error sending data:", e)
-                        self.log_error_to_sd(f"Error sending data: {e}")
-                        print("Saving data locally...")
-                        if self.sdcard_status:
-                            self.save_data_locally()
-                        else:
-                            print("SD card not mounted. Data will be lost.")
-                            self.log_error_to_sd("SD card not mounted. Data will be lost.")
-                        blink(5)
-                        self.data_buffer.clear()
-
-                self.save_data_to_csv(current_time_str, t, h)
-                blink(1)
-
-                gc.collect()
-                time.sleep(5)  # Sleep for 5 seconds between readings
-            except SDCardError:
-                self.sdcard_status = False  # Set sdcard_status to False when an SD card error occurs
-            except NetworkError:
-                self.reconnect_wifi()
-            except SensorError:
-                pass  # Add sensor-specific error handling here if needed
-            except Exception as e:
-                self.log_error_to_sd(f"Error while main loop: {e}")
-                blink(1, target=self.red)
-                print("Error:", e)
-                time.sleep(5)
-                gc.collect()
-                continue
+if __name__ == "__main__":
+    device = IoTDevice()
+    device.initialize_components()
+    device.main_loop()
