@@ -95,7 +95,7 @@ class IoTDevice:
                 unsent_data = file.readlines()
 
             if unsent_data:  
-                data_list = [json.loads(line) for line in unsent_data]
+                data_list = [json.loads(line[:-2]) for line in unsent_data] # each line will be str and end with [,\n]
                 try:
                     response = urequests.post(
                         self.api_url,
@@ -106,6 +106,7 @@ class IoTDevice:
                         print(f"Failed to send unsent data with status: {response.status_code}")
                         self.log_error_to_sd(f"Failed to send unsent data with status: {response.status_code}")
                     else:
+                        print("Successful send the unsent data! Now clearing the unsent.json")
                         with open(self.unsent_data_path, "w") as file:
                             pass  
                 except Exception as e:
@@ -231,4 +232,5 @@ class IoTDevice:
 if __name__ == "__main__":
     device = IoTDevice()
     device.initialize_components()
+    device.send_unsent_data()
     device.main_loop()
