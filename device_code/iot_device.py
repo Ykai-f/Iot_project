@@ -67,13 +67,13 @@ class IoTDevice:
                     data=json.dumps(self.data_buffer),
                     headers={'Content-Type': 'application/json'})
                 if response.status_code == 200:
-                    print("Data sent successfully")
+                    self.log_to_sd("Data sent successfully")
                     self.data_buffer.clear()
                 else:
                     raise NetworkError("Failed to send real-time data with status: {}".format(response.status_code))
             except Exception as e:
                 blink(5, target=self.red)
-                print("Error sending data:", e)
+                self.log_to_sd("Error sending data:", e)
                 self.log_error_to_sd(f"Error sending data: {e}")
                 raise NetworkError(e)
 
@@ -89,7 +89,7 @@ class IoTDevice:
                     file.write('\n')
         except Exception as e:
             self.log_error_to_sd(f"Error saving data locally: {e}")
-            print("Error saving data locally:", e)
+            self.log_to_sd("Error saving data locally:", e)
             raise SDCardError(e)
 
     def save_data_locally(self):
@@ -104,7 +104,7 @@ class IoTDevice:
                     file.write('\n')
         except Exception as e:
             self.log_error_to_sd(f"Error saving data locally: {e}")
-            print("Error saving data locally:", e)
+            self.log_to_sd("Error saving data locally:", e)
             raise SDCardError(e)
 
     def send_unsent_data(self):
@@ -117,7 +117,7 @@ class IoTDevice:
                     try:
                         data_list = [json.loads(line.strip()) for line in unsent_data if line.strip()]
                     except (ValueError, json.JSONDecodeError) as e:
-                        print("Error decoding JSON data: ", e)
+                        self.log_to_sd("Error decoding JSON data: ", e)
                         self.log_error_to_sd(f"Error decoding JSON data: {e}")
                         data_list = []
                     
@@ -129,25 +129,25 @@ class IoTDevice:
                                 headers={'Content-Type': 'application/json'}
                             )
                             if response.status_code != 200:
-                                print(f"Failed to send unsent data with status: {response.status_code}")
+                                self.log_to_sd(f"Failed to send unsent data with status: {response.status_code}")
                                 self.log_error_to_sd(f"Failed to send unsent data with status: {response.status_code}")
                             else:
-                                print("Successfully sent the unsent data! Now clearing the unsent.json")
+                                self.log_to_sd("Successfully sent the unsent data! Now clearing the unsent.json")
                                 with open(self.unsent_data_path, "w", encoding='utf-8') as file:
                                     pass
                         except Exception as e:
                             self.log_error_to_sd(f"Error sending unsent data: {e}")
                             self.blink(5, target=self.red)
-                            print("Error sending unsent data:", e)
+                            self.log_to_sd("Error sending unsent data:", e)
                     else:
-                        print("No valid data to send. Proceed to next.")
+                        self.log_to_sd("No valid data to send. Proceed to next.")
                 else:
-                    print("No unsent data. Proceed to next.")
+                    self.log_to_sd("No unsent data. Proceed to next.")
             except Exception as e:
-                print(f"Error reading unsent data file: {e}")
+                self.log_to_sd(f"Error reading unsent data file: {e}")
                 self.log_error_to_sd(f"Error reading unsent data file: {e}")
         else:
-            print("No unsent data file found. Creating one.")
+            self.log_to_sd("No unsent data file found. Creating one.")
             with open(self.unsent_data_path, "w", encoding='utf-8') as file:
                 pass
 
@@ -164,6 +164,19 @@ class IoTDevice:
 
     def log_error_to_sd(self, message):
         log_file_path = "sd/error_log.txt"
+        timestamp = time.localtime()
+        timestamp_str = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(*timestamp[:6])
+        
+        try:
+            with open(log_file_path, "a") as log_file:
+                log_file.write(f"{timestamp_str} - {message}\n")
+        except Exception as e:
+            self.log_to_sd("Error logging to SD card:", e)
+            raise SDCardError(e)
+        
+    def log_to_sd(self, message):
+        print(message)
+        log_file_path = "sd/log.txt"
         timestamp = time.localtime()
         timestamp_str = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(*timestamp[:6])
         
@@ -188,14 +201,14 @@ class IoTDevice:
         return self.dht_sensor, self.ds, self.sdcard_status
 
     def reconnect_wifi(self):
-        print("Connecting to WiFi...")
+        self.log_to_sd("Connecting to WiFi...")
         connect_to_wifi(self.ssid, self.password)
         if not wifi_status():
             self.sensor_read_interval = 3 * self.config['max_send_when_n_records']  # if the wifi is not connected, make the delay longer
             self.len_buffer_max = 3 * self.config['max_send_when_n_records']
             self.send_unsent_data()
         else:
-            print("Reconnect to WiFi!!")
+            self.log_to_sd("Reconnect to WiFi!!")
             self.send_gap = 60
             self.len_buffer_max = 10
 
@@ -204,72 +217,72 @@ class IoTDevice:
             self.sdcard_status = mount_sd()
         except SDCardError as e:
             self.log_error_to_sd(f"Error remounting SD card: {e}")
-            print("Failed to remount SD card:", e)
+            self.log_to_sd("Failed to remount SD card:", e)
         except Exception as e:
             self.log_error_to_sd(f"Error remounting SD card: {e}")
-            print("Failed to remount SD card:", e)
+            self.log_to_sd("Failed to remount SD card:", e)
 
     def main_loop(self):
         while True:
             if not self.config_mode:
-              try:
-                  current_time = time.time()
-                  current_time_str = "{:04d}-{:02d}-{:02d},{:02d}:{:02d}:{:02d}".format(*self.ds.get_time())
-                  t, h = read_dht11(self.dht_sensor)
-                  t = round(t, 1)
-                  h = round(h, 1)
-                  data_str = f"{current_time_str}{t}{h}"
-                  hash_object = hashlib.sha256(data_str.encode())
-                  hash_hex = ubinascii.hexlify(hash_object.digest()).decode()
-                  print(f"Current time: {current_time_str}\nTemperature: {t}C\nHumidity: {h}%")
-                  if not wifi_status():
-                      print("Warning! WIFI not connected!")
-                  if not self.sdcard_status:
-                      print("Warning! SD not mounted correctly!")
-                      self.remount_sd_card()
-                  print("")  # print gap between loops
+                try:
+                    current_time = time.time()
+                    current_time_str = "{:04d}-{:02d}-{:02d},{:02d}:{:02d}:{:02d}".format(*self.ds.get_time())
+                    t, h = read_dht11(self.dht_sensor)
+                    t = round(t, 1)
+                    h = round(h, 1)
+                    data_str = f"{current_time_str}{t}{h}"
+                    hash_object = hashlib.sha256(data_str.encode())
+                    hash_hex = ubinascii.hexlify(hash_object.digest()).decode()
+                    self.log_to_sd(f"Current time: {current_time_str}\nTemperature: {t}C\nHumidity: {h}%")
+                    if not wifi_status():
+                        self.log_to_sd("Warning! WIFI not connected!")
+                    if not self.sdcard_status:
+                        self.log_to_sd("Warning! SD not mounted correctly!")
+                        self.remount_sd_card()
+                    print("")  # print gap between loops
+    
+                    self.append_data_to_buffer(current_time_str, t, h, hash_hex)
+    
+                    if (current_time - self.last_send_time) >= self.sensor_read_interval*self.len_buffer_max or len(self.data_buffer) >= self.len_buffer_max:
+                        try:
+                            # Detect again if the wifi is connected
+                            if not wifi_status():
+                                self.reconnect_wifi()
+                            self.send_data_to_cloud()
+                        except NetworkError as e:
+                            blink(1, target=self.red)
+                            self.log_to_sd("Error sending data:", e)
+                            self.log_error_to_sd(f"Error sending data: {e}")
+                            self.log_to_sd("Saving data locally...")
+                            if self.sdcard_status:
+                                self.save_data_locally()
+                            else:
+                                self.log_to_sd("SD card not mounted. Data will be lost.")
+                                self.log_error_to_sd("SD card not mounted. Data will be lost.")
+                            blink(5)
+                            self.last_send_time = time.time()
+                            self.data_buffer.clear()
+    
+                    self.save_data_to_csv(current_time_str, t, h, hash_hex)
+                    blink(1)
   
-                  self.append_data_to_buffer(current_time_str, t, h, hash_hex)
-  
-                  if (current_time - self.last_send_time) >= self.sensor_read_interval*self.len_buffer_max or len(self.data_buffer) >= self.len_buffer_max:
-                      try:
-                          # Detect again if the wifi is connected
-                          if not wifi_status():
-                              self.reconnect_wifi()
-                          self.send_data_to_cloud()
-                      except NetworkError as e:
-                          blink(1, target=self.red)
-                          print("Error sending data:", e)
-                          self.log_error_to_sd(f"Error sending data: {e}")
-                          print("Saving data locally...")
-                          if self.sdcard_status:
-                              self.save_data_locally()
-                          else:
-                              print("SD card not mounted. Data will be lost.")
-                              self.log_error_to_sd("SD card not mounted. Data will be lost.")
-                          blink(5)
-                          self.last_send_time = time.time()
-                          self.data_buffer.clear()
-  
-                  self.save_data_to_csv(current_time_str, t, h, hash_hex)
-                  blink(1)
-  
-                  gc.collect()
-                  time.sleep(self.sensor_read_interval)  # Sleep for next reading
-              except SDCardError:
-                  self.sdcard_status = False  # Set sdcard_status to False when an SD card error occurs
-              except NetworkError:
-                  self.reconnect_wifi()
-              except SensorError:
-                  time.sleep(5)
-                  pass  # DHT sensor is easily meet meet problems like pulse not enough, so directly next reading
-              except Exception as e:
-                  self.log_error_to_sd(f"Error while main loop: {e}")
-                  blink(1, target=self.red)
-                  print("Error:", e)
-                  time.sleep(5)
-                  gc.collect()
-                  continue
+                    gc.collect()
+                    time.sleep(self.sensor_read_interval)  # Sleep for next reading
+                except SDCardError:
+                    self.sdcard_status = False  # Set sdcard_status to False when an SD card error occurs
+                except NetworkError:
+                    self.reconnect_wifi()
+                except SensorError:
+                    time.sleep(5)
+                    pass  # DHT sensor is easily meet meet problems like pulse not enough, so directly next reading
+                except Exception as e:
+                    self.log_error_to_sd(f"Error while main loop: {e}")
+                    blink(1, target=self.red)
+                    self.log_to_sd("Error:", e)
+                    time.sleep(5)
+                    gc.collect()
+                    continue
 
 if __name__ == "__main__":
     device = IoTDevice()
