@@ -5,8 +5,10 @@ from connect_mysql import connect_to_db
 from flask_cors import CORS
 from datetime import datetime, timedelta, time
 import pytz
+import hashlib
 
 app = flask.Flask(__name__)
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 30
 CORS(app)
 
 app.config['DEBUG'] = True
@@ -33,14 +35,23 @@ def update():
         query = "INSERT INTO iot_records (record_time, temperature, humidity) VALUES (%s, %s, %s)"
         # 遍历数组中的每一条记录
         for data in records:
-            if 'time' in data and 'temperature' in data and 'humidity' in data:
+            if 'time' in data and 'temperature' in data and 'humidity' in data and 'hash' in data:
+                # 验证哈希值
+                data_str = f"{data['time']}{data['temperature']}{data['humidity']}"
+                hash_object = hashlib.sha256(data_str.encode())
+                hash_hex = hash_object.hexdigest()
+                if hash_hex != data['hash']:
+                    cnx.rollback()
+                    return "Invalid hash for some records", 400
+
+                # 插入数据
                 cursor.execute(query, (data['time'], data['temperature'], data['humidity']))
             else:
                 cnx.rollback()
                 return "Missing data fields in some records", 400
         cnx.commit()
         return "Records inserted successfully", 200
-    except Error as e:
+    except Exception as e:
         cnx.rollback()
         print("Error while inserting data", e)
         return "Database error", 500
@@ -219,52 +230,79 @@ def get_by_period():
         return jsonify(records)
     else:
         return jsonify([]), 500
-    
+
 @app.route('/api/v1/summary_by_day', methods=['GET'])
 def summary_by_day():
     date_str = request.args.get('date')
+    timezone_str = request.args.get('timezone', 'UTC')
     if not date_str:
         return jsonify({"error": "Date parameter is required"}), 400
-    
-    date = datetime.strptime(date_str, '%Y-%m-%d')
-    next_date = date + timedelta(days=1)
-    
-    hourly_data = session.query(
-        func.date_trunc('hour', MyModel.record_time).label('hour'),
-        func.avg(MyModel.temperature).label('avg_temperature'),
-        func.avg(MyModel.humidity).label('avg_humidity')
-    ).filter(
-        MyModel.record_time >= date,
-        MyModel.record_time < next_date
-    ).group_by('hour').all()
-    
-    summary = session.query(
-        func.max(MyModel.temperature).label('max_temperature'),
-        func.min(MyModel.temperature).label('min_temperature'),
-        func.avg(MyModel.temperature).label('avg_temperature'),
-        func.avg(MyModel.humidity).label('avg_humidity')
-    ).filter(
-        MyModel.record_time >= date,
-        MyModel.record_time < next_date
-    ).one()
-    
-    result = {
-        "hourly_data": [
-            {
-                "hour": hour.hour.strftime('%Y-%m-%d %H:%M:%S'),
-                "avg_temperature": avg_temperature,
-                "avg_humidity": avg_humidity
-            } for hour, avg_temperature, avg_humidity in hourly_data
-        ],
-        "summary": {
-            "max_temperature": summary.max_temperature,
-            "min_temperature": summary.min_temperature,
-            "avg_temperature": summary.avg_temperature,
-            "avg_humidity": summary.avg_humidity
+
+    # 将输入的日期字符串解析为日期对象
+    try:
+        date = datetime.strptime(date_str, '%Y-%m-%d')
+    except ValueError:
+        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
+
+    # 获取用户的时区
+    try:
+        user_timezone = pytz.timezone(timezone_str)
+    except pytz.UnknownTimeZoneError:
+        return jsonify({"error": "Invalid timezone."}), 400
+
+    # 将日期转换为用户时区的开始时间和结束时间
+    start_of_day = user_timezone.localize(datetime.combine(date, time.min))
+    end_of_day = user_timezone.localize(datetime.combine(date + timedelta(days=1), time.min))
+
+    # 将时间转换为 UTC
+    start_of_day_utc = start_of_day.astimezone(pytz.utc)
+    end_of_day_utc = end_of_day.astimezone(pytz.utc)
+
+    #return jsonify(start_of_day_utc,  end_of_day_utc)
+
+    cnx = connect_to_db()
+    if not cnx:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        with cnx.cursor(dictionary=True) as cursor:
+            # 获取每小时的数据
+            cursor.execute("""
+                SELECT
+                    DATE_FORMAT(record_time, '%Y-%m-%d %H:00:00') as hour,
+                    ROUND(AVG(temperature), 1) as avg_temperature,
+                    ROUND(AVG(humidity), 1) as avg_humidity
+                FROM iot_records
+                WHERE record_time >= %s AND record_time < %s
+                GROUP BY hour
+                ORDER BY hour;
+            """, (start_of_day_utc, end_of_day_utc))
+            hourly_data = cursor.fetchall()
+
+            # 获取每日汇总数据
+            cursor.execute("""
+                    SELECT
+                        MAX(temperature) as max_temperature,
+                        MIN(temperature) as min_temperature,
+                        ROUND(AVG(temperature), 1) as avg_temperature,
+                        ROUND(AVG(humidity), 1) as avg_humidity,
+                        (SELECT record_time FROM iot_records WHERE temperature = MAX(t1.temperature) AND record_time >= %(start_time)s AND record_time < %(end_time)s LIMIT 1) as max_temp_time,
+                        (SELECT record_time FROM iot_records WHERE temperature = MIN(t1.temperature) AND record_time >= %(start_time)s AND record_time < %(end_time)s LIMIT 1) as min_temp_time
+                    FROM iot_records t1
+                    WHERE record_time >= %(start_time)s AND record_time < %(end_time)s;
+                """, {'start_time': start_of_day_utc, 'end_time': end_of_day_utc})
+            summary = cursor.fetchone()
+
+        result = {
+            "hourly_data": hourly_data,
+            "summary": summary
         }
-    }
-    
-    return jsonify(result)
+
+        return jsonify(result)
+
+    finally:
+        cnx.close()
+
 
 
 if __name__ == "__main__":

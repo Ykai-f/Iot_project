@@ -7,6 +7,8 @@ import rp2
 import machine
 from parts import blink, toggle, set_dht11, read_dht11, set_ds3231, set_ds3231_from_ntp, mount_sd
 from lib.wifi import connect_to_wifi, wifi_status
+import hashlib
+import ubinascii
 
 class SDCardError(Exception):
     pass
@@ -49,11 +51,12 @@ class IoTDevice:
         except OSError:
             return False
 
-    def append_data_to_buffer(self, timestamp, temp, humidity):
+    def append_data_to_buffer(self, timestamp, temp, humidity, hash_hex):
         self.data_buffer.append({
             "time": timestamp,
             "temperature": temp,
-            "humidity": humidity
+            "humidity": humidity,
+            "hash": hash_hex
         })
 
     def send_data_to_cloud(self):
@@ -89,37 +92,71 @@ class IoTDevice:
             print("Error saving data locally:", e)
             raise SDCardError(e)
 
+    def save_data_locally(self):
+        directory = '/'.join(self.unsent_data_path.split('/')[:-1])
+        if not self.file_exists(directory):
+            os.makedirs(directory)
+        
+        try:
+            with open(self.unsent_data_path, "a", encoding='utf-8') as file:
+                for data in self.data_buffer:
+                    json.dump(data, file, ensure_ascii=False)
+                    file.write('\n')
+        except Exception as e:
+            self.log_error_to_sd(f"Error saving data locally: {e}")
+            print("Error saving data locally:", e)
+            raise SDCardError(e)
+
     def send_unsent_data(self):
         if self.file_exists(self.unsent_data_path):
-            with open(self.unsent_data_path, "r") as file:
-                unsent_data = file.readlines()
-
-            if unsent_data:  
-                data_list = [json.loads(line[:-2]) for line in unsent_data] # each line will be str and end with [,\n]
-                try:
-                    response = urequests.post(
-                        self.api_url,
-                        data=json.dumps(data_list),
-                        headers={'Content-Type': 'application/json'}
-                    )
-                    if response.status_code != 200:
-                        print(f"Failed to send unsent data with status: {response.status_code}")
-                        self.log_error_to_sd(f"Failed to send unsent data with status: {response.status_code}")
+            try:
+                with open(self.unsent_data_path, "r", encoding='utf-8') as file:
+                    unsent_data = file.readlines()
+                
+                if unsent_data:
+                    try:
+                        data_list = [json.loads(line.strip()) for line in unsent_data if line.strip()]
+                    except (ValueError, json.JSONDecodeError) as e:
+                        print("Error decoding JSON data: ", e)
+                        self.log_error_to_sd(f"Error decoding JSON data: {e}")
+                        data_list = []
+                    
+                    if data_list:
+                        try:
+                            response = urequests.post(
+                                self.api_url,
+                                data=json.dumps(data_list),
+                                headers={'Content-Type': 'application/json'}
+                            )
+                            if response.status_code != 200:
+                                print(f"Failed to send unsent data with status: {response.status_code}")
+                                self.log_error_to_sd(f"Failed to send unsent data with status: {response.status_code}")
+                            else:
+                                print("Successfully sent the unsent data! Now clearing the unsent.json")
+                                with open(self.unsent_data_path, "w", encoding='utf-8') as file:
+                                    pass
+                        except Exception as e:
+                            self.log_error_to_sd(f"Error sending unsent data: {e}")
+                            self.blink(5, target=self.red)
+                            print("Error sending unsent data:", e)
                     else:
-                        print("Successful send the unsent data! Now clearing the unsent.json")
-                        with open(self.unsent_data_path, "w") as file:
-                            pass  
-                except Exception as e:
-                    self.log_error_to_sd(f"Error sending unsent data: {e}")
-                    self.blink(5, target=self.red)
-                    print("Error sending unsent data:", e)
+                        print("No valid data to send. Proceed to next.")
+                else:
+                    print("No unsent data. Proceed to next.")
+            except Exception as e:
+                print(f"Error reading unsent data file: {e}")
+                self.log_error_to_sd(f"Error reading unsent data file: {e}")
+        else:
+            print("No unsent data file found. Creating one.")
+            with open(self.unsent_data_path, "w", encoding='utf-8') as file:
+                pass
 
-    def save_data_to_csv(self, timestamp, temp, humidity):
+    def save_data_to_csv(self, timestamp, temp, humidity,hash_hex):
         if self.sdcard_status:
             csv_file_path = "sd/{}.csv".format(timestamp.split(",")[0])
             try:
                 with open(csv_file_path, "a") as file:
-                    file.write("{},{:.1f},{:.1f}\r\n".format(timestamp, temp, humidity))
+                    file.write("{},{},{},{}\r\n".format(timestamp, temp, humidity,hash_hex))
                 blink(3)
             except Exception as e:
                 self.log_error_to_sd(f"Error saving data to CSV: {e}")
@@ -179,7 +216,11 @@ class IoTDevice:
                   current_time = time.time()
                   current_time_str = "{:04d}-{:02d}-{:02d},{:02d}:{:02d}:{:02d}".format(*self.ds.get_time())
                   t, h = read_dht11(self.dht_sensor)
-  
+                  t = round(t, 1)
+                  h = round(h, 1)
+                  data_str = f"{current_time_str}{t}{h}"
+                  hash_object = hashlib.sha256(data_str.encode())
+                  hash_hex = ubinascii.hexlify(hash_object.digest()).decode()
                   print(f"Current time: {current_time_str}\nTemperature: {t}C\nHumidity: {h}%")
                   if not wifi_status():
                       print("Warning! WIFI not connected!")
@@ -188,7 +229,7 @@ class IoTDevice:
                       self.remount_sd_card()
                   print("")  # print gap between loops
   
-                  self.append_data_to_buffer(current_time_str, t, h)
+                  self.append_data_to_buffer(current_time_str, t, h, hash_hex)
   
                   if (current_time - self.last_send_time) >= self.sensor_read_interval*self.len_buffer_max or len(self.data_buffer) >= self.len_buffer_max:
                       try:
@@ -207,9 +248,10 @@ class IoTDevice:
                               print("SD card not mounted. Data will be lost.")
                               self.log_error_to_sd("SD card not mounted. Data will be lost.")
                           blink(5)
+                          self.last_send_time = time.time()
                           self.data_buffer.clear()
   
-                  self.save_data_to_csv(current_time_str, t, h)
+                  self.save_data_to_csv(current_time_str, t, h, hash_hex)
                   blink(1)
   
                   gc.collect()
@@ -225,7 +267,7 @@ class IoTDevice:
                   self.log_error_to_sd(f"Error while main loop: {e}")
                   blink(1, target=self.red)
                   print("Error:", e)
-                  time.sleep(self.sensor_read_interval) # Sleep for next reading
+                  time.sleep(5)
                   gc.collect()
                   continue
 
