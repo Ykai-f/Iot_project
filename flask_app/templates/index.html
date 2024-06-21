@@ -425,26 +425,6 @@
                         alert('Please select a date.');
                     }
                 },
-
-                fetchHourlyData() {
-                    if (this.hourlyDateInput) {
-                        const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-                        const url = `https://yuekai.pythonanywhere.com/api/v1/hourly_data?date=${this.hourlyDateInput}&timezone=${encodeURIComponent(userTimeZone)}`;
-                        fetch(url)
-                            .then(response => response.json())
-                            .then(data => {
-                                this.processHourlyData(data);
-                                this.showPlotly = true;
-                                this.lastData = null;
-                                this.showGauge = false;
-                                this.show_switch_button = false;
-                                this.showTextGauges = false;
-                            })
-                            .catch(error => console.error('Error fetching hourly data:', error));
-                        } else {
-                            alert('Please select a date.');
-                        }
-                },
                 
                 fetchLatestData() {
                 this.showGauge = false; // 先隐藏仪表盘，确保刷新
@@ -524,74 +504,6 @@
                     this.summaryDateInput = `${yyyy}-${mm}-${dd}`;
                 },
 
-                processHourlyData(data) {
-                    if (!Array.isArray(data)) {
-                        console.error('Expected an array of data');
-                        return;
-                    }
-
-                    const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-                    const processedData = data.map(item => {
-                        const localTime = new Date(item.hour + 'Z').toLocaleString('en-US', { timeZone: userTimeZone });
-                        const hour = new Date(item.hour + 'Z').getHours(); // 提取小时数
-                        return {
-                            hour: hour,
-                            average_temperature: item.average_temperature,
-                            average_humidity: item.average_humidity
-                        };
-                    });
-
-                    const hours = processedData.map(d => d.hour);
-                    const hourLabels = processedData.map(d => d.hour + 'h'); // 转换为 "0h", "1h" 等格式
-                    const temperatures = processedData.map(d => d.average_temperature);
-                    const humidities = processedData.map(d => d.average_humidity);
-
-                    const trace1 = {
-                        x: hours,
-                        y: temperatures,
-                        type: 'scatter',
-                        mode: 'lines+markers+text',
-                        text: temperatures.map(String),
-                        textposition: 'top center',
-                        name: 'Temperature'
-                    };
-
-                    const trace2 = {
-                        x: hours,
-                        y: humidities,
-                        type: 'scatter',
-                        mode: 'lines+markers+text',
-                        text: humidities.map(String),
-                        textposition: 'top center',
-                        name: 'Humidity'
-                    };
-
-                    const layout = {
-                        title: `Temperature and Humidity on ${this.hourlyDateInput}`,
-                        xaxis: {
-                            title: 'Hour',
-                            tickvals: hours,
-                            ticktext: hourLabels,
-                            showgrid: true,
-                            zeroline: false,
-                        },
-                        yaxis: { title: 'Value' },
-                        width: this.$refs.plotlyChart.offsetWidth,
-                        height: this.$refs.plotlyChart.offsetHeight,
-                        margin: { l: 50, r: 50, t: 50, b: 50 }
-
-                    };
-
-                    this.$nextTick(() => {
-                        setTimeout(() => {
-                            Plotly.newPlot(this.$refs.plotlyChart, [trace1, trace2], layout);
-                            this.currentView = 'json';
-                            this.tableData = [];
-                            this.jsonOutput = '';
-                            this.resizePlotlyChart(); // 调整图表尺寸
-                        }, 100); // 延迟 100 毫秒，确保 DOM 完全渲染
-                    });
-                },
 
                 processSummaryData(data) {
                     const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -634,7 +546,7 @@
                     const layout = {
                         // title: `Temperature and Humidity Summary for ${this.summaryDateInput}`,
                         xaxis: { title: 'Hour' },
-                        yaxis: { title: 'Value' },
+                        yaxis: { title: 'Avg T/H' },
                         width: this.$refs.plotlyChart.offsetWidth,
                         height: this.$refs.plotlyChart.offsetHeight,
                         margin: { l: 50, r: 50, t: 50, b: 50 }
