@@ -34,17 +34,20 @@ def set_dht11():
     sensor = DHT11(pin)
     return sensor
 
+class SensorError(Exception):
+    pass
+
 def read_dht11(sensor):
     attempts = 5
-    for _ in range(attempts):
+    for i in range(attempts):
         try:
             t = sensor.temperature
             h = sensor.humidity
             return t, h
         except Exception as e:
-            print("Error reading DHT11:", e)
-            time.sleep(2)  # prevent the "not enough pause problem"
-    raise Exception("Failed to read from DHT11 sensor after {} attempts".format(attempts))
+            print(f"{i/attempts}Error reading DHT11:", e)
+            time.sleep(5)  # prevent the "not enough pause problem"
+    raise SensorError("Failed to read from DHT11 sensor after {} attempts".format(attempts))
 
 ############################ ds3231 ###########################
 def set_ds3231():

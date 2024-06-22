@@ -70,6 +70,7 @@ class IoTDevice:
                 if response.status_code == 200:
                     self.log_to_sd("Data sent successfully")
                     self.data_buffer.clear()
+                    self.last_send_time = time.time()  # 成功发送后重置时间戳
                 else:
                     raise NetworkError("Failed to send real-time data with status: {}".format(response.status_code))
             except Exception as e:
@@ -215,6 +216,12 @@ class IoTDevice:
         except Exception as e:
             print("Failed to remount SD card:", e)
 
+    def should_send_data(self):
+        current_time = time.time()
+        if (current_time - self.last_send_time) >= self.sensor_read_interval * self.len_buffer_max or len(self.data_buffer) >= self.len_buffer_max:
+            return True
+        return False
+
     def main_loop(self):
         while True:
             if not self.config_mode:
@@ -237,14 +244,17 @@ class IoTDevice:
     
                     self.append_data_to_buffer(current_time_str, t, h, hash_hex)
     
-                    if (current_time - self.last_send_time) >= self.sensor_read_interval*self.len_buffer_max or len(self.data_buffer) >= self.len_buffer_max:
+                    if self.should_send_data():
                         try:
                             # Detect again if the wifi is connected
                             if not wifi_status():
                                 self.reconnect_wifi()
                             self.send_data_to_cloud()
-                        except NetworkError as e:
+                            self.last_send_time = time.time()
+                        except Exception as e:
                             blink(1, target=self.red)
+                            self.last_send_time = time.time()
+                            self.data_buffer.clear()
                             self.log_to_sd("Error sending data:", e)
                             self.log_error_to_sd(f"Error sending data: {e}")
                             self.log_to_sd("Saving data locally...")
@@ -254,8 +264,6 @@ class IoTDevice:
                                 self.log_to_sd("SD card not mounted. Data will be lost.")
                                 self.log_error_to_sd("SD card not mounted. Data will be lost.")
                             blink(5)
-                            self.last_send_time = time.time()
-                            self.data_buffer.clear()
     
                     self.save_data_to_csv(current_time_str, t, h, hash_hex)
                     blink(1)
@@ -272,7 +280,7 @@ class IoTDevice:
                     self.reconnect_wifi()
                 except SensorError:
                     time.sleep(5)
-                    pass  # DHT sensor is easily meet meet problems like pulse not enough, so directly next reading
+                    continue  # DHT sensor is easily meet meet problems like pulse not enough, so directly next reading
                 except Exception as e:
                     self.log_error_to_sd(f"Error while main loop: {e}")
                     blink(1, target=self.red)
