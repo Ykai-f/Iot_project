@@ -70,7 +70,7 @@ class IoTDevice:
                 if response.status_code == 200:
                     self.log_to_sd("Data sent successfully")
                     self.data_buffer.clear()
-                    self.last_send_time = time.time()  # 成功发送后重置时间戳
+                    self.last_send_time = time.time()  # 成功��送后重置时间戳
                 else:
                     raise NetworkError("Failed to send real-time data with status: {}".format(response.status_code))
             except Exception as e:
@@ -162,7 +162,7 @@ class IoTDevice:
             print("Error logging to SD card:", e)
             #raise SDCardError(e) 
         
-    def log_to_sd(self, message):
+    def log_to_sd(self, message,errormessage=""):
         print(message)
         log_file_path = "sd/log.txt"
         timestamp = time.localtime()
@@ -170,7 +170,7 @@ class IoTDevice:
         
         try:
             with open(log_file_path, "a") as log_file:
-                log_file.write(f"{timestamp_str} - {message}\n")
+                log_file.write(f"{timestamp_str} - {message} - {errormessage}\n")
         except Exception as e:
             print("Error logging to SD card:", e)
             #raise SDCardError(e)
